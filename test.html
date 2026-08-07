@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Kelimeli Online Test</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#10141d;color:#f5f7fb}main{max-width:900px;margin:auto;padding:24px}
+.card{background:#181e2a;border:1px solid #30394b;border-radius:18px;padding:18px;margin:14px 0}h1,h2{margin:0 0 14px}.row{display:flex;gap:10px;flex-wrap:wrap}.grow{flex:1 1 220px}
+input,select,button{font:inherit;border-radius:12px;padding:12px 14px;border:1px solid #3a465c}input,select{background:#0f141e;color:#fff}button{background:#2f6df6;color:#fff;font-weight:700}
+button.secondary{background:#242c3a}button.danger{background:#873b49}.rooms{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.room{border:1px solid #354158;border-radius:14px;padding:14px;background:#111722}
+.muted{color:#a7b0c0;font-size:14px}.ok{color:#66df9a}.bad{color:#ff8b96}pre{white-space:pre-wrap;word-break:break-word;background:#0c1119;padding:14px;border-radius:12px;max-height:280px;overflow:auto}
+.player{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #2a3343}.player:last-child{border-bottom:0}
+</style>
+</head>
+<body><main>
+<h1>Kelimeli Online — Sunucu Testi</h1>
+<p class="muted">İki ayrı cihaz veya iki gizli sekmeyle oda altyapısını test et.</p>
+<section class="card"><h2>1. Bağlan</h2><div class="row"><input id="name" class="grow" maxlength="20" placeholder="Oyuncu adı"><button id="connectBtn">Bağlan</button></div><p id="state" class="muted">Bağlı değil.</p></section>
+<section class="card"><h2>2. Sabit Odalar</h2><div id="rooms" class="rooms"></div></section>
+<section class="card"><h2>3. Özel Oda</h2><div class="row"><select id="size"><option value="2">2 kişilik</option><option value="3">3 kişilik</option><option value="4" selected>4 kişilik</option></select><button id="create">Özel oda oluştur</button></div><div class="row" style="margin-top:10px"><input id="code" inputmode="numeric" maxlength="6" placeholder="6 haneli kod"><button id="joinCode">Kodla katıl</button></div></section>
+<section class="card"><h2>Bulunduğun Oda</h2><div id="current" class="muted">Bir odada değilsin.</div><div class="row" style="margin-top:12px"><button id="ready" class="secondary">Hazırım</button><button id="leave" class="danger">Odadan çık</button></div></section>
+<section class="card"><h2>Olay Günlüğü</h2><pre id="log">Hazır.</pre></section>
+</main>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+let socket=null,currentRoom=null,ready=false;
+const $=id=>document.getElementById(id);
+function log(v){const t=new Date().toLocaleTimeString("tr-TR");const s=typeof v==="string"?v:JSON.stringify(v,null,2);$("log").textContent=`[${t}] ${s}\n\n`+$("log").textContent}
+function connected(ok,d=""){$("state").innerHTML=ok?`<span class="ok">● Bağlı</span> ${d}`:`<span class="bad">● Bağlı değil</span> ${d}`}
+function renderRooms(rooms){$("rooms").innerHTML=rooms.map(r=>`<div class="room"><strong>${r.name}</strong><div class="muted">${r.playerCount}/${r.maxPlayers} oyuncu</div><div class="muted">${r.type==="duel"?"Birebir":"Genel"}</div><button style="margin-top:10px;width:100%" onclick="joinRoom('${r.id}')">Katıl</button></div>`).join("")}
+function renderCurrent(r){currentRoom=r;if(!r){$("current").innerHTML='<span class="muted">Bir odada değilsin.</span>';return}$("current").innerHTML=`<div><b>${r.name}</b> — ${r.playerCount}/${r.maxPlayers}</div>${r.code?`<div><b>Kod:</b> ${r.code}</div>`:""}<div style="margin-top:10px">${r.players.map(p=>`<div class="player"><span>${p.isHost?"👑 ":""}${p.name}</span><span>${p.connected?"🟢":"🟡"} ${p.ready?"Hazır":"Bekliyor"}</span></div>`).join("")}</div>`}
+async function session(name){const r=await fetch("/api/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name})});const d=await r.json();if(!d.ok)throw new Error("Session oluşturulamadı");return d}
+async function connect(){if(socket?.connected)socket.disconnect();const name=$("name").value.trim()||`Test ${Math.floor(Math.random()*900+100)}`;const s=await session(name);socket=io({auth:{token:s.token},transports:["websocket","polling"]});socket.on("connect",()=>{connected(true,`(${name})`);log("Socket bağlandı.");socket.emit("rooms:get",r=>r.ok&&renderRooms(r.rooms))});socket.on("connect_error",e=>{connected(false,e.message);log({connect_error:e.message})});socket.on("session:ready",d=>{log({sessionReady:d});if(d.room)renderCurrent(d.room)});socket.on("rooms:update",renderRooms);socket.on("room:state",r=>{renderCurrent(r);log({roomState:r})});socket.on("disconnect",r=>{connected(false,r);log({disconnect:r})})}
+function req(){if(!socket?.connected){alert("Önce Bağlan'a bas.");return false}return true}
+window.joinRoom=id=>{if(!req())return;socket.emit("room:join",{roomId:id},r=>{log(r);if(!r.ok)alert(r.error.message);else renderCurrent(r.room)})};
+$("connectBtn").onclick=()=>connect().catch(e=>{connected(false,e.message);log(e.message)});
+$("create").onclick=()=>{if(!req())return;socket.emit("room:create-private",{maxPlayers:Number($("size").value)},r=>{log(r);if(!r.ok)alert(r.error.message);else{renderCurrent(r.room);$("code").value=r.code;alert(`Özel oda kodu: ${r.code}`)}})};
+$("joinCode").onclick=()=>{const c=$("code").value.replace(/\D/g,"").slice(0,6);if(c.length!==6)return alert("6 haneli oda kodu gir.");joinRoom(c)};
+$("ready").onclick=()=>{if(!req())return;ready=!ready;socket.emit("player:ready",{ready},r=>{log(r);if(!r.ok){ready=!ready;alert(r.error.message)}$("ready").textContent=ready?"Hazır değilim":"Hazırım"})};
+$("leave").onclick=()=>{if(!req())return;socket.emit("room:leave",r=>{log(r);if(r.ok){ready=false;$("ready").textContent="Hazırım";renderCurrent(null)}})};
+fetch("/api/rooms").then(r=>r.json()).then(d=>d.ok&&renderRooms(d.rooms)).catch(()=>{});
+</script></body></html>

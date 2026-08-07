@@ -1,0 +1,17 @@
+{
+  "name": "kelimeli-online-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Kelimeli gerçek zamanlı oda ve lobby sunucusu",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "socket.io": "4.8.1"
+  }
+}
