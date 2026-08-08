@@ -1,28 +1,22 @@
-# Kelimeli Online Server v0.1
+# Kelimeli Online Server v0.2
 
-Kelimeli'nin ilk canlı oda/lobby altyapısı.
+Bu sürüm canlı oda altyapısına gerçek karşılaşma motorunu ekler.
 
-## Var
-- 2 sabit 4 kişilik genel oda
-- 2 sabit 2 kişilik birebir oda
-- 2/3/4 kişilik özel oda
-- 6 haneli özel oda kodu
-- Son kişi çıkınca özel odayı otomatik silme
-- Hazır/bekliyor durumu
-- Bağlantı kopunca 15 saniyelik reconnect rezervi
-- `GET /health`
-- `GET /api/rooms`
-- `POST /api/session`
-- Socket.IO
-- `/test` tarayıcı test ekranı
+- 2 sabit genel oda (4 kişi)
+- 2 sabit birebir oda (2 kişi)
+- 6 haneli 2/3/4 kişilik özel oda
+- Genel odada en az 2 hazır oyuncu -> 10 sn geri sayım
+- Birebirde 2/2 hazır -> 3 sn geri sayım
+- Özel odada tüm oyuncular hazırken kurucu başlatır -> 3 sn geri sayım
+- Aynı 5 harfli kelime, 6 tahmin, varsayılan 120 sn
+- Doğru kelime yalnızca sunucuda tutulur; maç bitene kadar rakiplere gönderilmez
+- Rakipler yalnızca renk desenlerini görür
+- Pes etme, süre dolumu, sıralama ve 10 sn sonra oda reseti
+- 15 sn reconnect rezervi
 
-## Henüz yok
-Maçın kelime/süre/puan/kazanan kuralları. Önce oda altyapısı iki cihazla doğrulanacak.
+Sunucu portu: `3000`
 
-## Dokploy
-- Provider: Git (public HTTPS repository)
-- Branch: `main`
-- Build type: `Dockerfile`
-- Dockerfile path: `Dockerfile`
-- Container port: `3000`
-- İlk test için environment variable zorunlu değil.
+Canlı test: `/test`
+Sağlık: `/health`
+
+Kelime sayısı: 5162

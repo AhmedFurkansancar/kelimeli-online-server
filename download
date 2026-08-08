@@ -4,4 +4,3 @@ npm-debug.log
 .gitignore
 .env
 .DS_Store
-test

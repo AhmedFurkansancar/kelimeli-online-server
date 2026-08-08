@@ -29,6 +29,8 @@ class RoomManager {
       status: "waiting",
       hostPlayerId: null,
       createdAt: new Date().toISOString(),
+      countdownEndsAt: null,
+      match: null,
       players: new Map()
     };
   }
@@ -68,6 +70,11 @@ class RoomManager {
     return this.playerRoom.get(playerId) || null;
   }
 
+  getPlayerRoom(playerId) {
+    const id = this.playerRoom.get(playerId);
+    return id ? this.rooms.get(id) || null : null;
+  }
+
   createPrivateRoom(player, maxPlayers = 4) {
     const size = Number(maxPlayers);
     if (![2, 3, 4].includes(size)) {
@@ -101,7 +108,8 @@ class RoomManager {
       return room;
     }
 
-    if (room.status !== "waiting") {
+    const canJoinCountdown = room.type === "public" && room.status === "countdown";
+    if (room.status !== "waiting" && !canJoinCountdown) {
       throw new RoomError("ROOM_IN_MATCH", "Bu odada karşılaşma devam ediyor.");
     }
     if (room.players.size >= room.maxPlayers) {
@@ -139,6 +147,8 @@ class RoomManager {
 
     if (room.fixed && room.players.size === 0) {
       room.status = "waiting";
+      room.countdownEndsAt = null;
+      room.match = null;
       room.hostPlayerId = null;
     }
 
@@ -146,9 +156,11 @@ class RoomManager {
   }
 
   setReady(playerId, ready) {
-    const roomId = this.playerRoom.get(playerId);
-    const room = roomId ? this.rooms.get(roomId) : null;
+    const room = this.getPlayerRoom(playerId);
     if (!room) throw new RoomError("NOT_IN_ROOM", "Önce bir odaya katılmalısın.");
+    if (!["waiting", "countdown"].includes(room.status)) {
+      throw new RoomError("MATCH_ALREADY_STARTED", "Karşılaşma başladı.");
+    }
 
     const player = room.players.get(playerId);
     if (!player) throw new RoomError("NOT_IN_ROOM", "Oyuncu odada bulunamadı.");
@@ -158,24 +170,21 @@ class RoomManager {
   }
 
   markDisconnected(playerId) {
-    const roomId = this.playerRoom.get(playerId);
-    const room = roomId ? this.rooms.get(roomId) : null;
+    const room = this.getPlayerRoom(playerId);
     if (!room) return null;
     const player = room.players.get(playerId);
     if (!player) return null;
 
     player.connected = false;
     player.socketId = null;
-    player.ready = false;
+    if (room.status !== "playing") player.ready = false;
     return room;
   }
 
   reconnectPlayer(player) {
-    const roomId = this.playerRoom.get(player.id);
-    const room = roomId ? this.rooms.get(roomId) : null;
+    const room = this.getPlayerRoom(player.id);
     if (!room) return null;
     const record = room.players.get(player.id);
-
     if (!record) {
       this.playerRoom.delete(player.id);
       return null;
@@ -188,14 +197,42 @@ class RoomManager {
   }
 
   isDisconnected(playerId) {
-    const roomId = this.playerRoom.get(playerId);
-    const room = roomId ? this.rooms.get(roomId) : null;
+    const room = this.getPlayerRoom(playerId);
     const player = room?.players.get(playerId);
     return Boolean(player && !player.connected);
   }
 
+  connectedPlayers(room) {
+    return [...room.players.values()].filter(p => p.connected);
+  }
+
+  readyPlayers(room) {
+    return this.connectedPlayers(room).filter(p => p.ready);
+  }
+
+  resetToWaiting(room) {
+    if (!room) return;
+    room.status = "waiting";
+    room.countdownEndsAt = null;
+    room.match = null;
+    for (const player of room.players.values()) player.ready = false;
+  }
+
   serializeRoom(room) {
     if (!room) return null;
+
+    const progressById = new Map();
+    if (room.match?.participants) {
+      for (const p of room.match.participants.values()) {
+        progressById.set(p.id, {
+          attempts: p.guesses.length,
+          solved: Boolean(p.solvedAt),
+          finished: Boolean(p.finishedAt),
+          surrendered: Boolean(p.surrendered),
+          progress: p.guesses.map(g => g.result)
+        });
+      }
+    }
 
     const players = [...room.players.values()]
       .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt))
@@ -204,8 +241,19 @@ class RoomManager {
         name: p.name,
         connected: p.connected,
         ready: p.ready,
-        isHost: room.hostPlayerId === p.id
+        isHost: room.hostPlayerId === p.id,
+        match: progressById.get(p.id) || null
       }));
+
+    const match = room.match ? {
+      id: room.match.id,
+      startedAt: room.match.startedAt,
+      endsAt: room.match.endsAt,
+      finishedAt: room.match.finishedAt || null,
+      maxAttempts: room.match.maxAttempts,
+      durationMs: room.match.durationMs,
+      participantCount: room.match.participants.size
+    } : null;
 
     return {
       id: room.id,
@@ -214,10 +262,13 @@ class RoomManager {
       name: room.name,
       fixed: room.fixed,
       status: room.status,
+      countdownEndsAt: room.countdownEndsAt,
       maxPlayers: room.maxPlayers,
       playerCount: players.length,
       connectedCount: players.filter((p) => p.connected).length,
-      players
+      readyCount: players.filter((p) => p.connected && p.ready).length,
+      players,
+      match
     };
   }
 }
