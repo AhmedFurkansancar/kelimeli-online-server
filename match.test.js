@@ -5,6 +5,8 @@ const {
   startMatch,
   startNextRound,
   submitGuess,
+  requestHint,
+  undoLastGuess,
   surrender,
   finishRound,
   finishMatch
@@ -65,4 +67,20 @@ test("final sıralama toplam puana göre oluşur",()=>{
   const answer=r.match.currentRound.answer;
   submitGuess(r,"1",answer,new Set([answer])); surrender(r,"2"); finishRound(r); finishMatch(r);
   assert.equal(r.match.standings[0].playerId,"1"); assert.equal(r.status,"results");
+});
+
+
+test("harf ipucu yalnız bilinmeyen konumu açar",()=>{
+  const r=room(); startMatch(r,[{id:"1",name:"A"},{id:"2",name:"B"}],["kalem"],{wordCount:1,durationSec:200});
+  const hint=requestHint(r,"1");
+  assert.equal(hint.ok,true); assert.equal(typeof hint.position,"number"); assert.equal(hint.letter,Array.from(r.match.currentRound.answer)[hint.position]);
+  const hint2=requestHint(r,"1"); assert.notEqual(hint2.position,hint.position);
+});
+
+test("yanlış tahmin geri alınınca deneme hakkı geri gelir",()=>{
+  const r=room(); startMatch(r,[{id:"1",name:"A"},{id:"2",name:"B"}],["kalem"],{wordCount:1,durationSec:200});
+  const dict=new Set(["kalem","araba"]);
+  const answer=r.match.currentRound.answer; const wrong=answer==="kalem"?"araba":"kalem";
+  submitGuess(r,"1",wrong,dict); assert.equal(r.match.currentRound.participants.get("1").guesses.length,1);
+  const undone=undoLastGuess(r,"1"); assert.equal(undone.ok,true); assert.equal(undone.removed.word,wrong); assert.equal(r.match.currentRound.participants.get("1").guesses.length,0);
 });

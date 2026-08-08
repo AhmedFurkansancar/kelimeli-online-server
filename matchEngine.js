@@ -44,6 +44,7 @@ function makeRoundParticipant(player) {
     id: player.id,
     name: player.name,
     guesses: [],
+    hints: new Set(),
     solvedAt: null,
     finishedAt: null,
     surrendered: false
@@ -178,6 +179,62 @@ function submitGuess(room, playerId, guessValue, wordSet) {
     solved,
     finished: Boolean(participant.finishedAt),
     round: round.number
+  };
+}
+
+
+function requestHint(room, playerId) {
+  const match = room?.match;
+  const round = match?.currentRound;
+  if (!room || room.status !== "playing" || !match || !round) return { error: "MATCH_NOT_ACTIVE" };
+  const participant = round.participants.get(playerId);
+  if (!participant) return { error: "NOT_A_PARTICIPANT" };
+  if (participant.finishedAt) return { error: "PLAYER_FINISHED" };
+  if (Date.now() >= round.endsAtMs) return { error: "MATCH_TIME_OVER" };
+
+  if (!(participant.hints instanceof Set)) participant.hints = new Set(participant.hints || []);
+  const known = new Set(participant.hints);
+  for (const guess of participant.guesses) {
+    (guess.result || []).forEach((state, index) => {
+      if (state === "correct") known.add(index);
+    });
+  }
+
+  const candidates = [0, 1, 2, 3, 4].filter(index => !known.has(index));
+  if (!candidates.length) return { error: "NO_HINT_AVAILABLE" };
+
+  const position = candidates[crypto.randomInt(0, candidates.length)];
+  participant.hints.add(position);
+  const letter = Array.from(round.answer)[position];
+  return {
+    ok: true,
+    position,
+    letter,
+    hints: [...participant.hints].sort((a, b) => a - b).map(index => ({
+      position: index,
+      letter: Array.from(round.answer)[index]
+    }))
+  };
+}
+
+function undoLastGuess(room, playerId) {
+  const match = room?.match;
+  const round = match?.currentRound;
+  if (!room || room.status !== "playing" || !match || !round) return { error: "MATCH_NOT_ACTIVE" };
+  const participant = round.participants.get(playerId);
+  if (!participant) return { error: "NOT_A_PARTICIPANT" };
+  if (participant.surrendered) return { error: "PLAYER_SURRENDERED" };
+  if (participant.solvedAt) return { error: "CANNOT_UNDO_SOLVED" };
+  if (!participant.guesses.length) return { error: "NO_GUESSES" };
+  if (Date.now() >= round.endsAtMs) return { error: "MATCH_TIME_OVER" };
+
+  const removed = participant.guesses.pop();
+  participant.finishedAt = null;
+  return {
+    ok: true,
+    removed: { word: removed.word, result: removed.result },
+    attempt: participant.guesses.length,
+    guesses: participant.guesses.map(g => ({ word: g.word, result: g.result }))
   };
 }
 
@@ -338,6 +395,8 @@ module.exports = {
   startMatch,
   startNextRound,
   submitGuess,
+  requestHint,
+  undoLastGuess,
   surrender,
   allParticipantsFinished,
   finishRound,

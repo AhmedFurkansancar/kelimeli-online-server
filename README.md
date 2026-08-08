@@ -29,4 +29,9 @@ Mevcut GitHub reposunun köküne bu paketteki dosyaları yükleyip commit et. Do
 
 Container portu: `3000`.
 
-Deploy sonrası `/health` çıktısında `version: "0.3.0"` görülmelidir.
+Deploy sonrası `/health` çıktısında `version: "0.4.0"` görülmelidir.
+
+
+## v0.4
+- Online maçta server-authoritative Harf Alayım (cevap client tarafına açılmadan)
+- Online maçta son yanlış tahmini geri alma desteği

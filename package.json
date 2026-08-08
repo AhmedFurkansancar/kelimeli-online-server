@@ -1,6 +1,6 @@
 {
   "name": "kelimeli-online-server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Kelimeli gerçek zamanlı çok turlu karşılaşma sunucusu",
   "main": "server.js",
