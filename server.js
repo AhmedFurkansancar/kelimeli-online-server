@@ -9,7 +9,7 @@ const PORT = Number(process.env.PORT || 3000);
 const RECONNECT_GRACE_MS = Math.max(3000, Number(process.env.RECONNECT_GRACE_MS || 15000));
 const SESSION_SECRET = process.env.SESSION_SECRET?.trim() || crypto.randomBytes(32).toString("hex");
 const EPHEMERAL_SECRET = !process.env.SESSION_SECRET?.trim();
-const TEST_HTML = path.join(__dirname, "public", "test.html");
+const TEST_HTML = path.join(__dirname, "test.html");
 
 const rooms = new RoomManager();
 const disconnectTimers = new Map();
