@@ -1,11 +1,15 @@
 const crypto = require("crypto");
 
+const FIXED_RULES = Object.freeze({ wordCount: 5, durationSec: 200 });
 const FIXED_ROOMS = [
   { id: "PUBLIC-1", type: "public", name: "Online Oda 1", maxPlayers: 4 },
   { id: "PUBLIC-2", type: "public", name: "Online Oda 2", maxPlayers: 4 },
   { id: "DUEL-1", type: "duel", name: "Birebir Oda 1", maxPlayers: 2 },
   { id: "DUEL-2", type: "duel", name: "Birebir Oda 2", maxPlayers: 2 }
 ];
+
+const PRIVATE_WORD_COUNTS = new Set([3, 5, 7, 10]);
+const PRIVATE_DURATIONS = new Set([90, 120, 150, 200, 240, 300]);
 
 class RoomError extends Error {
   constructor(code, message) {
@@ -14,18 +18,41 @@ class RoomError extends Error {
   }
 }
 
+function normalizePrivateSettings(input = {}) {
+  const wordCount = Number(input.wordCount ?? 5);
+  const durationSec = Number(input.durationSec ?? 200);
+  if (!PRIVATE_WORD_COUNTS.has(wordCount)) {
+    throw new RoomError("INVALID_WORD_COUNT", "Kelime sayısı 3, 5, 7 veya 10 olabilir.");
+  }
+  if (!PRIVATE_DURATIONS.has(durationSec)) {
+    throw new RoomError("INVALID_DURATION", "Kelime süresi 90, 120, 150, 200, 240 veya 300 saniye olabilir.");
+  }
+  return { wordCount, durationSec };
+}
+
 class RoomManager {
   constructor() {
     this.rooms = new Map();
     this.playerRoom = new Map();
     for (const def of FIXED_ROOMS) {
-      this.rooms.set(def.id, this.makeRoom({ ...def, fixed: true, code: null }));
+      this.rooms.set(def.id, this.makeRoom({
+        ...def,
+        fixed: true,
+        code: null,
+        settings: { ...FIXED_RULES }
+      }));
     }
   }
 
-  makeRoom({ id, code, type, name, maxPlayers, fixed }) {
+  makeRoom({ id, code, type, name, maxPlayers, fixed, settings }) {
     return {
-      id, code, type, name, maxPlayers, fixed,
+      id,
+      code,
+      type,
+      name,
+      maxPlayers,
+      fixed,
+      settings: { ...settings },
       status: "waiting",
       hostPlayerId: null,
       createdAt: new Date().toISOString(),
@@ -75,16 +102,23 @@ class RoomManager {
     return id ? this.rooms.get(id) || null : null;
   }
 
-  createPrivateRoom(player, maxPlayers = 4) {
+  createPrivateRoom(player, maxPlayers = 4, settingsInput = {}) {
     const size = Number(maxPlayers);
     if (![2, 3, 4].includes(size)) {
       throw new RoomError("INVALID_ROOM_SIZE", "Özel oda 2, 3 veya 4 kişilik olabilir.");
     }
+    const settings = normalizePrivateSettings(settingsInput);
 
     this.leaveRoom(player.id);
     const code = this.makePrivateCode();
     const room = this.makeRoom({
-      id: code, code, type: "private", name: "Özel Oda", maxPlayers: size, fixed: false
+      id: code,
+      code,
+      type: "private",
+      name: "Özel Oda",
+      maxPlayers: size,
+      fixed: false,
+      settings
     });
 
     room.hostPlayerId = player.id;
@@ -92,6 +126,31 @@ class RoomManager {
     this.playerRoom.set(player.id, room.id);
     this.rooms.set(room.id, room);
     return room;
+  }
+
+  findBestRoom(type) {
+    const candidates = [...this.rooms.values()].filter(room =>
+      room.type === type &&
+      room.fixed &&
+      room.players.size < room.maxPlayers &&
+      ["waiting", "countdown"].includes(room.status)
+    );
+    candidates.sort((a, b) => {
+      if (b.players.size !== a.players.size) return b.players.size - a.players.size;
+      return a.id.localeCompare(b.id);
+    });
+    return candidates[0] || null;
+  }
+
+  quickJoin(type, player) {
+    if (!["duel", "public"].includes(type)) {
+      throw new RoomError("INVALID_MATCHMAKING_TYPE", "Geçersiz eşleştirme türü.");
+    }
+    const room = this.findBestRoom(type);
+    if (!room) {
+      throw new RoomError("NO_ROOM_AVAILABLE", type === "duel" ? "Şu an uygun birebir odası yok." : "Şu an uygun çoklu oda yok.");
+    }
+    return this.joinRoom(room.id, player);
   }
 
   joinRoom(roomId, player) {
@@ -108,7 +167,7 @@ class RoomManager {
       return room;
     }
 
-    const canJoinCountdown = room.type === "public" && room.status === "countdown";
+    const canJoinCountdown = room.fixed && room.status === "countdown";
     if (room.status !== "waiting" && !canJoinCountdown) {
       throw new RoomError("ROOM_IN_MATCH", "Bu odada karşılaşma devam ediyor.");
     }
@@ -177,7 +236,7 @@ class RoomManager {
 
     player.connected = false;
     player.socketId = null;
-    if (room.status !== "playing") player.ready = false;
+    if (!["playing", "round-results"].includes(room.status)) player.ready = false;
     return room;
   }
 
@@ -222,8 +281,9 @@ class RoomManager {
     if (!room) return null;
 
     const progressById = new Map();
-    if (room.match?.participants) {
-      for (const p of room.match.participants.values()) {
+    const currentRound = room.match?.currentRound;
+    if (currentRound?.participants) {
+      for (const p of currentRound.participants.values()) {
         progressById.set(p.id, {
           attempts: p.guesses.length,
           solved: Boolean(p.solvedAt),
@@ -234,6 +294,7 @@ class RoomManager {
       }
     }
 
+    const totalScoreById = room.match?.scores || new Map();
     const players = [...room.players.values()]
       .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt))
       .map((p) => ({
@@ -242,17 +303,20 @@ class RoomManager {
         connected: p.connected,
         ready: p.ready,
         isHost: room.hostPlayerId === p.id,
+        score: Number(totalScoreById.get(p.id) || 0),
         match: progressById.get(p.id) || null
       }));
 
     const match = room.match ? {
       id: room.match.id,
       startedAt: room.match.startedAt,
-      endsAt: room.match.endsAt,
       finishedAt: room.match.finishedAt || null,
-      maxAttempts: room.match.maxAttempts,
+      currentRound: room.match.currentRoundNumber,
+      totalRounds: room.match.totalRounds,
+      roundEndsAt: room.match.currentRound?.endsAt || null,
       durationMs: room.match.durationMs,
-      participantCount: room.match.participants.size
+      maxAttempts: room.match.maxAttempts,
+      standings: room.match.standings || null
     } : null;
 
     return {
@@ -262,15 +326,23 @@ class RoomManager {
       name: room.name,
       fixed: room.fixed,
       status: room.status,
-      countdownEndsAt: room.countdownEndsAt,
       maxPlayers: room.maxPlayers,
       playerCount: players.length,
-      connectedCount: players.filter((p) => p.connected).length,
-      readyCount: players.filter((p) => p.connected && p.ready).length,
+      connectedCount: players.filter(p => p.connected).length,
+      countdownEndsAt: room.countdownEndsAt,
+      settings: { ...room.settings },
       players,
       match
     };
   }
 }
 
-module.exports = { RoomManager, RoomError, FIXED_ROOMS };
+module.exports = {
+  RoomManager,
+  RoomError,
+  FIXED_ROOMS,
+  FIXED_RULES,
+  PRIVATE_WORD_COUNTS,
+  PRIVATE_DURATIONS,
+  normalizePrivateSettings
+};
