@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 
 const TURKISH_LETTERS = "abcçdefgğhıijklmnoöprsştuüvyz";
+const POWERUP_COSTS = Object.freeze({ hint: 1, undo: 3 });
 
 function canonicalize(value) {
   return String(value || "").trim().toLocaleLowerCase("tr-TR");
@@ -389,6 +390,7 @@ function finishMatch(room, reason = "completed") {
 }
 
 module.exports = {
+  POWERUP_COSTS,
   canonicalize,
   isFiveLetterWord,
   evaluateGuess,

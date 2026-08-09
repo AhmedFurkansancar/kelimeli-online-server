@@ -84,3 +84,32 @@ test("yanlış tahmin geri alınınca deneme hakkı geri gelir",()=>{
   submitGuess(r,"1",wrong,dict); assert.equal(r.match.currentRound.participants.get("1").guesses.length,1);
   const undone=undoLastGuess(r,"1"); assert.equal(undone.ok,true); assert.equal(undone.removed.word,wrong); assert.equal(r.match.currentRound.participants.get("1").guesses.length,0);
 });
+
+
+test("ipucu mevcut yeşil konumu tekrar satmaz",()=>{
+  const r=room(); startMatch(r,[{id:"1",name:"A"},{id:"2",name:"B"}],["kalem"],{wordCount:1,durationSec:200});
+  const answer=r.match.currentRound.answer;
+  const chars=[...answer];
+  let wrong="araba"; if(wrong===answer) wrong="deniz";
+  const dict=new Set([answer,wrong]);
+  const submitted=submitGuess(r,"1",wrong,dict);
+  const greens=new Set(submitted.result.map((v,i)=>v==="correct"?i:-1).filter(i=>i>=0));
+  const hint=requestHint(r,"1");
+  assert.equal(hint.ok,true);
+  assert.equal(greens.has(hint.position),false);
+});
+
+test("undo ipuçlarını korur",()=>{
+  const r=room(); startMatch(r,[{id:"1",name:"A"},{id:"2",name:"B"}],["kalem"],{wordCount:1,durationSec:200});
+  const hint=requestHint(r,"1");
+  const answer=r.match.currentRound.answer; const wrong=answer==="kalem"?"araba":"kalem";
+  submitGuess(r,"1",wrong,new Set([answer,wrong]));
+  undoLastGuess(r,"1");
+  assert.equal(r.match.currentRound.participants.get("1").hints.has(hint.position),true);
+});
+
+test("doğru tahmin jokerle geri alınamaz",()=>{
+  const r=room(); startMatch(r,[{id:"1",name:"A"},{id:"2",name:"B"}],["kalem"],{wordCount:1,durationSec:200});
+  const answer=r.match.currentRound.answer; submitGuess(r,"1",answer,new Set([answer]));
+  assert.equal(undoLastGuess(r,"1").error,"CANNOT_UNDO_SOLVED");
+});

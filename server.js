@@ -6,6 +6,7 @@ const { Server } = require("socket.io");
 const { RoomManager, RoomError } = require("./roomManager");
 const {
   canonicalize,
+  POWERUP_COSTS,
   startMatch,
   startNextRound,
   submitGuess,
@@ -19,7 +20,7 @@ const {
   deactivatePlayer
 } = require("./matchEngine");
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const PORT = Number(process.env.PORT || 3000);
 const RECONNECT_GRACE_MS = Math.max(3000, Number(process.env.RECONNECT_GRACE_MS || 15000));
 const PUBLIC_COUNTDOWN_MS = Math.max(3000, Number(process.env.PUBLIC_COUNTDOWN_MS || 10000));
@@ -109,6 +110,10 @@ const server = http.createServer(async (req, res) => {
         uptimeSeconds: Math.floor(process.uptime()),
         words: WORDS.length,
         rules: { fixedWordCount: 5, fixedDurationSec: 200 },
+        powerups: {
+          hint: { enabled: true, cost: POWERUP_COSTS.hint },
+          undo: { enabled: true, cost: POWERUP_COSTS.undo }
+        },
         fixedRooms: rooms.listFixedRooms().map(r => ({ id: r.id, status: r.status, players: r.playerCount, maxPlayers: r.maxPlayers }))
       });
       return;
@@ -403,6 +408,7 @@ io.on("connection", socket => {
         surrendered: Boolean(participant.surrendered),
         guesses: participant.guesses.map(g => ({ word: g.word, result: g.result })),
         hints: [...(participant.hints || [])].sort((a, b) => a - b).map(position => ({ position, letter: Array.from(round.answer)[position] })),
+        powerupCosts: { ...POWERUP_COSTS },
         answer: ["round-results", "results"].includes(room.status) || participant.surrendered ? round.answer : null
       });
     } catch (error) { ackError(ack, error); }
@@ -436,7 +442,7 @@ io.on("connection", socket => {
         };
         throw new RoomError(result.error, map[result.error] || "Harf ipucu alınamadı.");
       }
-      ackOk(ack, result);
+      ackOk(ack, { ...result, cost: POWERUP_COSTS.hint });
     } catch (error) { ackError(ack, error); }
   });
 
@@ -451,7 +457,7 @@ io.on("connection", socket => {
         };
         throw new RoomError(result.error, map[result.error] || "Tahmin geri alınamadı.");
       }
-      ackOk(ack, result); emitRoomState(room); io.to(room.id).emit("match:progress", { room: rooms.serializeRoom(room) });
+      ackOk(ack, { ...result, cost: POWERUP_COSTS.undo }); emitRoomState(room); io.to(room.id).emit("match:progress", { room: rooms.serializeRoom(room) });
     } catch (error) { ackError(ack, error); }
   });
 
