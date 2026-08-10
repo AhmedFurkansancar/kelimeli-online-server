@@ -34,6 +34,7 @@ const TEST_HTML = path.join(__dirname, "test.html");
 const WORDS = JSON.parse(fs.readFileSync(path.join(__dirname, "words.json"), "utf8"))
   .map(canonicalize)
   .filter(Boolean);
+const ANSWER_WORDS = WORDS.slice(0, 4200);
 const WORD_SET = new Set(WORDS);
 
 const rooms = new RoomManager();
@@ -208,7 +209,7 @@ function reevaluateAutoStart(room) {
 
 function beginMatchSeries(room, participants) {
   clearTimer(countdownTimers, room.id);
-  const match = startMatch(room, participants, WORDS, room.settings);
+  const match = startMatch(room, participants, ANSWER_WORDS, room.settings);
   io.to(room.id).emit("match:started", {
     matchId: match.id,
     totalRounds: match.totalRounds,
@@ -244,7 +245,7 @@ function finishCurrentRound(roomId, reason) {
     const fresh = rooms.getRoom(room.id);
     if (!fresh || fresh.status !== "round-results" || !fresh.match) return;
     if (canStartNextRound(fresh)) {
-      const nextRound = startNextRound(fresh, WORDS);
+      const nextRound = startNextRound(fresh, ANSWER_WORDS);
       io.to(fresh.id).emit("round:started", {
         matchId: fresh.match.id,
         round: nextRound.number,
